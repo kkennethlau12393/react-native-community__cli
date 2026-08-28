@@ -10,46 +10,7 @@ import type {IncomingMessage, ServerResponse} from 'http';
 import {json} from 'body-parser';
 import connect from 'connect';
 import open from 'open';
-
-// open@6 launches URLs through `cmd /c start` on Windows and only escapes `&`.
-// Reject the remaining cmd metacharacters, including `%` and `!` expansion,
-// even though this also rejects some otherwise-valid percent-encoded URLs.
-const WINDOWS_SHELL_SPECIAL_CHARS = /[|<>^%!]/;
-const INVALID_URL = 'Invalid URL';
-
-function sendResponse(
-  res: ServerResponse,
-  statusCode: number,
-  message?: string,
-) {
-  res.writeHead(statusCode);
-  res.end(message);
-}
-
-function isSafeHostname(hostname: string) {
-  return (
-    (hostname.startsWith('[') && hostname.endsWith(']')) ||
-    hostname === encodeURIComponent(hostname)
-  );
-}
-
-function validateURLForOpen(url: string) {
-  const parsedUrl = new URL(url);
-
-  if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
-    throw new Error('Invalid URL protocol');
-  }
-
-  if (!isSafeHostname(parsedUrl.hostname)) {
-    throw new Error('Invalid URL hostname');
-  }
-
-  if (WINDOWS_SHELL_SPECIAL_CHARS.test(parsedUrl.href)) {
-    throw new Error('Invalid URL characters');
-  }
-
-  return parsedUrl.href;
-}
+import {sanitizeUrl} from 'strict-url-sanitise';
 
 /**
  * Open a URL in the system browser.
@@ -64,29 +25,32 @@ async function openURLMiddleware(
 ) {
   if (req.method === 'POST') {
     if (req.body == null) {
-      sendResponse(res, 400, 'Missing request body');
+      res.writeHead(400);
+      res.end('Missing request body');
       return;
     }
 
     const {url} = req.body as {url: string};
 
     if (typeof url !== 'string') {
-      sendResponse(res, 400, 'URL must be a string');
+      res.writeHead(400);
+      res.end('URL must be a string');
       return;
     }
 
-    let validatedUrl;
+    let sanitizedUrl: string;
     try {
-      validatedUrl = validateURLForOpen(url);
+      sanitizedUrl = sanitizeUrl(url);
     } catch {
-      sendResponse(res, 400, INVALID_URL);
+      res.writeHead(400);
+      res.end('Invalid URL');
       return;
     }
 
-    await open(validatedUrl);
+    await open(sanitizedUrl);
 
-    sendResponse(res, 200);
-    return;
+    res.writeHead(200);
+    res.end();
   }
 
   next();
